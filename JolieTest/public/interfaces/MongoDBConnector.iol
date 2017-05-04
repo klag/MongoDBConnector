@@ -1,72 +1,87 @@
-type ConnectRequest:void{
+type MongoDBConnectRequest:void{
   .host : string
   .dbname : string
   .port :int
+  .password:string
+  .username:string
   .timeZone:string
   .jsonStringDebug?:bool
   .logStreamDebug?:bool
 }
 
-type ConnectResponse: void
+type MongoDBConnectResponse: void
 
-type QueryRequest:void{
+type MongoDBQueryRequest:void{
    .collection: string
    .filter?:undefined
    .sort?:undefined
    .limit?: int
 }
 
-type QueryResponse:void{
+type MongoDBQueryResponse:void{
    .document*: undefined
 }
-type InsertRequest:void{
+type MongoDBInsertRequest:void{
   .collection: string
   .document:undefined
 }
 
-type InsertResponse:void
+type MongoDBInsertResponse:void
 
 
-type UpdateRequest:void{
+type MongoDBUpdateRequest:void{
   .collection: string
   .filter:undefined
   .documentUpdate:undefined
 }
 
-type UpdateResponse:void
+type MongoDBUpdateResponse:void
 
-type DeleteRequest:void{
+type MongoDBDeleteRequest:void{
   .collection: string
   .filter?:undefined
 }
 
-type DeleteResponse:void
+type MongoDBDeleteResponse:void
 
-type AggregateRequest:void{
+type MongoDBAggregateRequest:void{
     .collection: string
     .filter*:string{
        ?
     }
 }
 
-type AggregateResponse:void{
+type MongoDBAggregateResponse:void{
     .document*:undefined
 }
 
-type ListCollectionRequest:undefined
+type MongoDBListCollectionRequest:undefined
 
-type ListCollectionResponse:void{
+type MongoDBListCollectionResponse:void{
   .collection*:string
 }
 interface MongoDBInterface {
   RequestResponse:
-  connect (ConnectRequest)(ConnectResponse) throws MongoException ,
-  query   (QueryRequest)(QueryResponse)   throws MongoException JsonParseException ,
-  insert  (InsertRequest)(InsertResponse)   throws MongoException JsonParseException ,
-  update  (UpdateRequest)(UpdateResponse)   throws MongoException JsonParseException ,
-  delete  (DeleteRequest)(DeleteResponse)   throws MongoException JsonParseException ,
-  aggregate (AggregateRequest)(AggregateResponse) throws MongoException JsonParseException
-  listCollection(ListCollectionRequest)(ListCollectionResponse) throws MongoException JsonParseException
+  connect( MongoDBConnectRequest )( MongoDBConnectResponse )
+      throws MongoException  MongoConnectionError,
+  query( MongoDBQueryRequest )( MongoDBQueryResponse )
+      throws MongoException JsonParseException,
+  insert( MongoDBInsertRequest )( MongoDBInsertResponse )
+      throws MongoException JsonParseException,
+  update( MongoDBUpdateRequest )( MongoDBUpdateResponse )
+      throws MongoException JsonParseException,
+  delete( MongoDBDeleteRequest )( MongoDBDeleteResponse )
+      throws MongoException JsonParseException,
+  aggregate( MongoDBAggregateRequest )( MongoDBAggregateResponse )
+      throws MongoException JsonParseException,
+  listCollection( MongoDBListCollectionRequest )( MongoDBListCollectionResponse )
+      throws MongoException JsonParseException,
+  getDBReadConcern( undefined )( undefined ),
+  listDB( undefined )( undefined ),
+  createRole( undefined )( undefined ),
+  readRoles( undefined )( undefined ),
+  updateRole( undefined )( undefined ),
+  dropRole( undefined )( undefined )
 }
 
 

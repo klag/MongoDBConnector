@@ -5,7 +5,6 @@
  */
 package joliex.mongodb;
 
-import com.mongodb.BasicDBList;
 import com.mongodb.BasicDBObject;
 import com.mongodb.Block;
 import com.mongodb.DBObject;
@@ -29,8 +28,8 @@ import jolie.runtime.Value;
 import jolie.runtime.embedding.RequestResponse;
 import org.bson.BsonDocument;
 import java.util.Date;
+import java.util.HashMap;
 import java.util.Iterator;
-import java.util.LinkedList;
 import java.util.List;
 import java.util.ListIterator;
 import java.util.Map;
@@ -40,15 +39,21 @@ import java.util.logging.Level;
 import java.util.logging.Logger;
 import jolie.runtime.FaultException;
 import jolie.runtime.ValueVector;
-import jolie.runtime.correlation.CorrelationError;
 import org.bson.BsonArray;
+import org.bson.BsonBinary;
+import org.bson.BsonBoolean;
 import org.bson.BsonDateTime;
 import org.bson.BsonDouble;
 import org.bson.BsonElement;
 import org.bson.BsonInt32;
 import org.bson.BsonInt64;
+import org.bson.BsonJavaScript;
+import org.bson.BsonJavaScriptWithScope;
+import org.bson.BsonNull;
 import org.bson.BsonObjectId;
+import org.bson.BsonRegularExpression;
 import org.bson.BsonString;
+import org.bson.BsonTimestamp;
 import org.bson.BsonValue;
 import org.bson.Document;
 import org.bson.conversions.Bson;
@@ -72,16 +77,370 @@ public class MongoDbConnector extends JavaService {
     private String dbname;
     private String host;
     private int port;
-    private String timeZone;
     private static MongoClient mongoClient;
     private static MongoDatabase db;
     private MongoClientOptions mongoClientOptions;
     private static Logger log;
-    private static boolean jsonDebuger;
+    private static boolean jsonDebugger;
     private static boolean is64;
-    private DateTimeZone zone;
     private static boolean logStream;
     private String logString;
+    
+    private String TYPETOKEN = "@type";
+    private String OBJTOKEN = "@obj";
+    
+    private enum Types {
+        DATE,
+        REGEX,
+        JAVASCRIPT,
+        JAVASCRIPTWITHSCOPE,
+        TIMESTAMP
+    }
+    
+    private static final Map<String, Types> typesMap = new HashMap<String,Types>();
+    static { 
+        typesMap.put("date", Types.DATE ); 
+        typesMap.put("regex", Types.REGEX ); 
+        typesMap.put("javascript", Types.JAVASCRIPT ); 
+        typesMap.put("javascriptWithScope", Types.JAVASCRIPTWITHSCOPE );
+        typesMap.put("timestamp", Types.TIMESTAMP );
+    }
+    
+    
+    private void printlnJson(String level, BsonDocument bsonDocument) {
+        if (jsonDebugger) {
+            System.out.println(level + " " + bsonDocument.toJson());
+        }
+    }
+
+    private void addLog(String msg) {
+        if (logStream) {
+            logString += "\r\n" + msg;
+        }
+    }
+
+    private void showLog() {
+        logString = "Processing Steps at " + System.currentTimeMillis();
+    }
+    
+    private BsonDocument processDocument( String nodeName, Value value ) throws FaultException {
+        BsonDocument bsonDocument = new BsonDocument();
+        if ( value.getFirstChild( TYPETOKEN ).isDefined() ) {
+            String complexType = value.getFirstChild( TYPETOKEN ).strValue();
+            Types type = typesMap.get( complexType );
+            if ( type != null ) {
+                switch( type ) {
+                    // TODO: javascriptWithScope
+                    // TODO: timestamp
+                    case DATE:
+                        bsonDocument.append( nodeName, new BsonDateTime( value.longValue() ));
+                    break;
+                    case REGEX:
+                        bsonDocument.append( nodeName, new BsonRegularExpression( value.strValue() ) );
+                    break;
+                    case JAVASCRIPT:
+                        bsonDocument.append( nodeName, new BsonJavaScript( value.strValue() ) );
+                    break;                     
+                }
+            } else {
+                Value fault = Value.create();
+                fault.getFirstChild("message").setValue("TypeError: type " + complexType + " not supported!");
+                throw( new FaultException( "JsonParserExceptionType", fault ) ); 
+            }
+        } else {
+            if ( value.isBool() ) {
+                bsonDocument.append( nodeName, new BsonBoolean( value.boolValue() ) );
+            }
+            if ( value.isByteArray() ) {
+                bsonDocument.append( nodeName, new BsonBinary( value.byteArrayValue().getBytes()));
+            }
+            if ( value.isChannel() ) {
+                bsonDocument.append( nodeName, new BsonString( value.channelValue().toString() ) );
+            }
+            if ( value.isDouble() ) {
+                bsonDocument.append( nodeName, new BsonDouble( value.doubleValue() ) );
+            }
+            if ( value.isInt() ) {
+                bsonDocument.append( nodeName, new BsonInt32( value.intValue() ) );
+            }
+            if ( value.isLong() ) {
+                bsonDocument.append( nodeName, new BsonInt64( value.longValue() ) );
+            }
+            if ( value.isString() ) {
+                bsonDocument.append( nodeName, new BsonString( value.strValue() ) );
+            }
+            if ( value.equals( Value.create() ) ) {
+                // if it is void
+                bsonDocument.append( nodeName, new BsonNull() );
+            }
+        }
+        
+        
+    }
+    
+    
+    private BsonArray processValueVector( ValueVector valueVector ) {
+        BsonArray bsonArray = new BsonArray();
+        if(!valueVector.isEmpty()) {
+            if ( valueVector.size() == 1 ) {
+                // it could be an object
+                if( valueVector.get( 0 ).hasChildren( OBJTOKEN ) ) {
+                    
+                }
+            }
+            
+            for( int counterValueVector = 0; counterValueVector < valueVector.size(); counterValueVector++ ) {
+                // check if the node has a complex type 
+                if( valueVector.get( counterValueVector ).hasChildren( TYPETOKEN ) ) {
+                    
+          
+                               
+
+                            /*else if (valueVector.get(counterValueVector).getFirstChild( TYPETOKEN ).strValue().equals("Point")) {
+                                ArrayList<BsonElement> bsonPoint = new ArrayList();
+                                BsonElement typeElement = new BsonElement("type", new BsonString("Point"));
+                                bsonPoint.add(typeElement);
+                                BsonArray coordinates = new BsonArray();
+                                coordinates.add(new BsonDouble(valueVector.get(counterValueVector).getFirstChild("coordinates").getFirstChild("lat").doubleValue()));
+                                coordinates.add(new BsonDouble(valueVector.get(counterValueVector).getFirstChild("coordinates").getFirstChild("log").doubleValue()));
+                                BsonElement coordinateElement = new BsonElement("coordinates", coordinates);
+                                bsonPoint.add(coordinateElement);
+                                BsonDocument bsonObj = new BsonDocument(bsonPoint);
+                                if (valueVector.size() == 1) {
+                                    bsonDocument.append(entry.getKey(), bsonObj);
+                                } else {
+                                    bsonArray.add(counterValueVector, bsonObj);
+                                }
+                            } else if (valueVector.get(counterValueVector).getFirstChild( TYPETOKEN ).strValue().equals("LineString")) {
+                                ArrayList<BsonElement> bsonPoint = new ArrayList();
+                                BsonElement typeElement = new BsonElement("type", new BsonString("LineString"));
+                                bsonPoint.add(typeElement);
+                                BsonArray coordinates = new BsonArray();
+                                for (int counter = 0; counter < valueVector.get(counterValueVector).getChildren("coordinates").size(); counter++) {
+                                    BsonArray coord = new BsonArray();
+                                    coord.add(new BsonDouble(valueVector.get(counterValueVector).getChildren("coordinates").get(counter).getFirstChild("lat").doubleValue()));
+                                    coord.add(new BsonDouble(valueVector.get(counterValueVector).getChildren("coordinates").get(counter).getFirstChild("log").doubleValue()));
+                                    coordinates.add(coord);
+                                }
+                                BsonElement coordinateElement = new BsonElement("coordinates", coordinates);
+                                bsonPoint.add(coordinateElement);
+                                BsonDocument bsonObj = new BsonDocument(bsonPoint);
+                                if (valueVector.size() == 1) {
+                                    bsonDocument.append(entry.getKey(), bsonObj);
+                                } else {
+                                    bsonArray.add(counterValueVector, bsonObj);
+                                }
+                            } else if (valueVector.get(counterValueVector).getFirstChild( TYPETOKEN ).strValue().equals("LineString")) {
+                                ArrayList<BsonElement> bsonPoint = new ArrayList();
+                                BsonElement typeElement = new BsonElement("type", new BsonString("LineString"));
+                                bsonPoint.add(typeElement);
+                                BsonArray coordinates = new BsonArray();
+                                for (int counter = 0; counter < valueVector.get(counterValueVector).getChildren("coordinates").size(); counter++) {
+                                    BsonArray coord = new BsonArray();
+                                    coord.add(new BsonDouble(valueVector.get(counterValueVector).getChildren("coordinates").get(counter).getFirstChild("lat").doubleValue()));
+                                    coord.add(new BsonDouble(valueVector.get(counterValueVector).getChildren("coordinates").get(counter).getFirstChild("log").doubleValue()));
+                                    coordinates.add(coord);
+                                }
+                                BsonElement coordinateElement = new BsonElement("coordinates", coordinates);
+                                bsonPoint.add(coordinateElement);
+                                BsonDocument bsonObj = new BsonDocument(bsonPoint);
+                                if (valueVector.size() == 1) {
+                                    bsonDocument.append(entry.getKey(), bsonObj);
+                                } else {
+                                    bsonArray.add(counterValueVector, bsonObj);
+                                }
+                            } else if (valueVector.get(counterValueVector).getFirstChild( TYPETOKEN ).strValue().equals("Polygon")) {
+                                ArrayList<BsonElement> bsonPoint = new ArrayList();
+                                BsonElement typeElement = new BsonElement("type", new BsonString("Polygon"));
+                                bsonPoint.add(typeElement);
+                                BsonArray coordinates = new BsonArray();
+                                for (int counter = 0; counter < valueVector.get(counterValueVector).getChildren("coordinates").size(); counter++) {
+                                    BsonArray coord = new BsonArray();
+                                    coord.add(new BsonDouble(valueVector.get(counterValueVector).getChildren("coordinates").get(counter).getFirstChild("lat").doubleValue()));
+                                    coord.add(new BsonDouble(valueVector.get(counterValueVector).getChildren("coordinates").get(counter).getFirstChild("log").doubleValue()));
+                                    coordinates.add(coord);
+                                }
+                                BsonElement coordinateElement = new BsonElement("coordinates", coordinates);
+                                bsonPoint.add(coordinateElement);
+                                BsonDocument bsonObj = new BsonDocument(bsonPoint);
+                                if (valueVector.size() == 1) {
+                                    bsonDocument.append(entry.getKey(), bsonObj);
+                                } else {
+                                    bsonArray.add(counterValueVector, bsonObj);
+                                }
+                            } else {
+                                throw new FaultException("ComplexTypeNotSupported");
+                            }
+
+                        } else {
+                            bsonArray.add(counterValueVector, createDocument(valueVector.get(counterValueVector)));
+                        }*/
+                    }
+
+                    if (valueVector.get(counterValueVector).isInt()) {
+                        addLog("createDocument>>> valueVector.get(counterValueVector).isInt() ");
+                        if (is64) {
+                            BsonInt64 bsonObj = new BsonInt64(valueVector.get(counterValueVector).intValue());
+                            if (valueVector.size() == 1) {
+                                bsonDocument.append(entry.getKey(), bsonObj);
+                            } else {
+                                bsonArray.add(counterValueVector, bsonObj);
+                            }
+
+                        } else {
+                            BsonInt32 bsonObj = new BsonInt32(valueVector.get(counterValueVector).intValue());
+                            if (valueVector.size() == 1) {
+                                bsonDocument.append(entry.getKey(), bsonObj);
+                            } else {
+                                bsonArray.add(counterValueVector, bsonObj);
+                            }
+                        }
+
+                    }
+                    if (valueVector.get(counterValueVector).isDouble()) {
+                        addLog("createDocument>>> valueVector.get(counterValueVector).isDouble() ");
+                        BsonDouble bsonObj = new BsonDouble(valueVector.get(counterValueVector).doubleValue());
+                        if (valueVector.size() == 1) {
+                            bsonDocument.append(entry.getKey(), bsonObj);
+                        } else {
+                            bsonArray.add(counterValueVector, bsonObj);
+                        }
+                    }
+                    if (valueVector.get(counterValueVector).isString()) {
+                        addLog("createDocument>>> valueVector.get(counterValueVector).isString() ");
+                        BsonString bsonObj = new BsonString(valueVector.get(counterValueVector).strValue());
+                        if (valueVector.size() == 1) {
+                            bsonDocument.append(entry.getKey(), bsonObj);
+                        } else {
+                            bsonArray.add(counterValueVector, bsonObj);
+                        }
+                    }
+
+                }
+                
+
+            } else {
+
+            }
+    }
+    
+    private BsonDocument createDocument( Value request ) throws FaultException {
+        BsonDocument bsonDocument = new BsonDocument();
+        Map<String, ValueVector> children = request.children();
+        Set<Map.Entry<String, ValueVector>> childrenSet = children.entrySet();
+        Iterator<Map.Entry<String, ValueVector>> iterator = childrenSet.iterator();
+        while (iterator.hasNext()) {
+            Map.Entry<String, ValueVector> entry = iterator.next();
+            ValueVector valueVector = entry.getValue();
+            if ( valueVector.size() == 1 ) {
+                if( valueVector.get( 0 ).hasChildren( OBJTOKEN ) ) {
+                    
+                }
+            }
+            BsonArray bsonArray = processValueVector( entry.getValue() );
+            if (!bsonArray.isEmpty()) {
+                bsonDocument.append(entry.getKey(), bsonArray);
+            }
+        }
+        return bsonDocument;
+    }
+
+    private Value processQueryRow(BsonDocument document) {
+        Value v = Value.create();
+        Set<String> keySet = document.keySet();
+        Iterator<String> iteratorKeySet = keySet.iterator();
+
+        while (iteratorKeySet.hasNext()) {
+            String nameField = iteratorKeySet.next();
+            if (document.isString(nameField)) {
+                v.getChildren(nameField).add(Value.create(document.getString(nameField).getValue()));
+            } else if (document.isInt32(nameField)) {
+                v.getChildren(nameField).add(Value.create(document.getInt32(nameField).getValue()));
+            } else if (document.isInt64(nameField)) {
+                v.getChildren(nameField).add(Value.create(document.getInt64(nameField).getValue()));
+            } else if (document.isDouble(nameField)) {
+                v.getChildren(nameField).add(Value.create(document.getDouble(nameField).getValue()));
+            } else if (document.isDateTime(nameField)) {
+                Date date = new Date(document.getDateTime(nameField).getValue());
+                v.getChildren(nameField).add(Value.create(date.getTime()));
+                v.getFirstChild(nameField).getNewChild("@type").add(Value.create("Date"));
+                v.getFirstChild(nameField).getFirstChild("@type").getNewChild("DateStr").add(Value.create(date.toString()));
+            } else if (document.isDocument(nameField)) {
+                if ((document.getDocument(nameField).containsKey("type"))
+                        && (document.getDocument(nameField).containsKey("coordinates"))) {
+                    if (document.getDocument(nameField).containsValue(new BsonString("Point"))) {
+                        v.getFirstChild(nameField).getFirstChild("@type").add(Value.create("Point"));
+                        BsonArray coordinates = document.getDocument(nameField).getArray("coordinates");
+                        v.getFirstChild(nameField).getFirstChild("coordinates").getFirstChild("lat").add(Value.create(coordinates.get(0).asDouble().getValue()));
+                        v.getFirstChild(nameField).getFirstChild("coordinates").getFirstChild("log").add(Value.create(coordinates.get(1).asDouble().getValue()));
+                    }
+                    if (document.getDocument(nameField).containsValue(new BsonString("LineString"))) {
+
+                        v.getFirstChild(nameField).getFirstChild("@type").add(Value.create("LineString"));
+                        BsonArray coordinates = document.getDocument(nameField).getArray("coordinates");
+                        for (int counter = 0; counter < coordinates.size(); counter++) {
+                            BsonArray cood = coordinates.get(counter).asArray();
+                            v.getFirstChild(nameField).getChildren("coordinates").get(counter).getFirstChild("lat").add(Value.create(cood.get(0).asDouble().getValue()));
+                            v.getFirstChild(nameField).getChildren("coordinates").get(counter).getFirstChild("log").add(Value.create(cood.get(1).asDouble().getValue()));
+                        }
+                    }
+                    if (document.getDocument(nameField).containsValue(new BsonString("Polygon"))) {
+
+                        v.getFirstChild(nameField).getFirstChild("@type").add(Value.create("Polygon"));
+                        BsonArray coordinates = document.getDocument(nameField).getArray("coordinates");
+                        for (int counter = 0; counter < coordinates.size(); counter++) {
+                            BsonArray cood = coordinates.get(counter).asArray();
+                            v.getFirstChild(nameField).getChildren("coordinates").get(counter).getFirstChild("lat").add(Value.create(cood.get(0).asDouble().getValue()));
+                            v.getFirstChild(nameField).getChildren("coordinates").get(counter).getFirstChild("log").add(Value.create(cood.get(1).asDouble().getValue()));
+                        }
+                    }
+                } else {
+                    v.getChildren(nameField).add(processQueryRow(document.getDocument(nameField)));
+                }
+            } else if (document.isArray(nameField)) {
+
+                List<BsonValue> array = document.getArray(nameField).getValues();
+                Iterator<BsonValue> iteratorArray = array.iterator();
+
+                while (iteratorArray.hasNext()) {
+                    Object obj = iteratorArray.next();
+
+                    if (obj instanceof BsonString) {
+                        BsonString bsonObj = (BsonString) obj;
+                        v.getChildren(nameField).add(Value.create(bsonObj.getValue()));
+                    } else if (obj instanceof BsonInt32) {
+                        BsonInt32 bsonObj = (BsonInt32) obj;
+                        v.getChildren(nameField).add(Value.create(bsonObj.getValue()));
+                    } else if (obj instanceof BsonInt64) {
+                        BsonInt64 bsonObj = (BsonInt64) obj;
+                        v.getChildren(nameField).add(Value.create(bsonObj.getValue()));
+                    } else if (obj instanceof BsonDouble) {
+                        BsonDouble bsonObj = (BsonDouble) obj;
+                        v.getChildren(nameField).add(Value.create(bsonObj.getValue()));
+                    } else if (obj instanceof BsonDateTime) {
+                        BsonDateTime date = BsonDateTime.class.cast(obj);
+                        Value objValue = Value.create(date.getValue());
+                        objValue.getNewChild("@type").add(Value.create("Date"));
+                        objValue.getFirstChild("@type").getNewChild("DateStr").add(Value.create(date.toString()));
+                        v.getChildren(nameField).add(objValue);
+                    } else if (obj instanceof BsonDocument) {
+                        BsonDocument bsonObj = (BsonDocument) obj;
+                        v.getChildren(nameField).add(processQueryRow(bsonObj));
+                    }
+                }
+
+            } else if (document.get(nameField).isObjectId()) {
+                BsonObjectId objId;
+                objId = document.getObjectId(nameField);
+                v.add(Value.create(objId.getValue().toHexString()));
+
+            }
+
+        }
+
+        return v;
+
+    }
 
     @RequestResponse
     public void connect(Value request) throws FaultException {
@@ -89,13 +448,15 @@ public class MongoDbConnector extends JavaService {
             host = request.getFirstChild("host").strValue();
             port = request.getFirstChild("port").intValue();
             dbname = request.getFirstChild("dbname").strValue();
-            timeZone = request.getFirstChild("timeZone").strValue();
+            if ( request.getFirstChild("timeZone").isDefined() ) {
+                DateTimeZone.setDefault( DateTimeZone.forID( request.getFirstChild("timeZone").strValue() ));
+            } 
             password = request.getFirstChild("password").strValue();
             username = request.getFirstChild("username").strValue();
             log = Logger.getLogger("org.mongodb.driver");
             log.setLevel(Level.OFF);
             if (request.hasChildren("jsonStringDebug")) {
-                jsonDebuger = request.getFirstChild("jsonStringDebug").boolValue();
+                jsonDebugger = request.getFirstChild("jsonStringDebug").boolValue();
             }
             if (request.hasChildren("logStreamDebug")) {
                 logStream = request.getFirstChild("logStreamDebug").boolValue();
@@ -113,13 +474,10 @@ public class MongoDbConnector extends JavaService {
             if (null != mongoClient) {
                     System.out.println("recovering client");
                     db = mongoClient.getDatabase(dbname);
-            }else{
+            } else{
                     mongoClient = new MongoClient(serverAddress, credentials);
                     db = mongoClient.getDatabase(dbname);
             }
-            
-            zone = DateTimeZone.forID(timeZone);
-            DateTimeZone.setDefault(zone);
 
         } catch (MongoException ex) {
             throw new FaultException("LoginConnection", ex);
@@ -216,9 +574,9 @@ public class MongoDbConnector extends JavaService {
         try {
 
             String collectionName = request.getFirstChild("collection").strValue();
-            BsonDocument bsonDocument = createDocument(request.getFirstChild("document"));
-            printlnJson("insert document", bsonDocument);
-            db.getCollection(collectionName, BsonDocument.class).insertOne(bsonDocument);
+            BsonDocument bsonDocument = createDocument( request.getFirstChild("document") );
+            printlnJson( "insert document", bsonDocument );
+            db.getCollection(collectionName, BsonDocument.class).insertOne( bsonDocument );
 
         } catch (MongoException ex) {
             throw new FaultException("MongoException", ex);
@@ -697,274 +1055,7 @@ public class MongoDbConnector extends JavaService {
 
     }
 
-    private BsonDocument createDocument(Value request) throws FaultException {
-        BsonDocument bsonDocument = new BsonDocument();
-        Map<String, ValueVector> children = request.children();
-        Set<Map.Entry<String, ValueVector>> childrenSet = children.entrySet();
-        Iterator<Map.Entry<String, ValueVector>> iterator = childrenSet.iterator();
-        while (iterator.hasNext()) {
-            Map.Entry<String, ValueVector> entry = iterator.next();
-            ValueVector valueVector = entry.getValue();
-            if (!valueVector.isEmpty()) {
-                BsonArray bsonArray = new BsonArray();
-                for (int counterValueVector = 0; counterValueVector < valueVector.size(); counterValueVector++) {
+    
 
-                    if (valueVector.get(counterValueVector).hasChildren()) {
-                        if (valueVector.get(counterValueVector).hasChildren("@type")) {
-                            if (valueVector.get(counterValueVector).getFirstChild("@type").strValue().equals("Date")) {
-                                DateTimeZone.setDefault(zone);
-                                BsonDateTime bsonObj = new BsonDateTime(valueVector.get(counterValueVector).longValue());
-                                if (valueVector.size() == 1) {
-                                    bsonDocument.append(entry.getKey(), bsonObj);
-                                } else {
-                                    bsonArray.add(counterValueVector, bsonObj);
-                                }
-
-                            } else if (valueVector.get(counterValueVector).getFirstChild("@type").strValue().equals("Point")) {
-                                ArrayList<BsonElement> bsonPoint = new ArrayList();
-                                BsonElement typeElement = new BsonElement("type", new BsonString("Point"));
-                                bsonPoint.add(typeElement);
-                                BsonArray coordinates = new BsonArray();
-                                coordinates.add(new BsonDouble(valueVector.get(counterValueVector).getFirstChild("coordinates").getFirstChild("lat").doubleValue()));
-                                coordinates.add(new BsonDouble(valueVector.get(counterValueVector).getFirstChild("coordinates").getFirstChild("log").doubleValue()));
-                                BsonElement coordinateElement = new BsonElement("coordinates", coordinates);
-                                bsonPoint.add(coordinateElement);
-                                BsonDocument bsonObj = new BsonDocument(bsonPoint);
-                                if (valueVector.size() == 1) {
-                                    bsonDocument.append(entry.getKey(), bsonObj);
-                                } else {
-                                    bsonArray.add(counterValueVector, bsonObj);
-                                }
-                            } else if (valueVector.get(counterValueVector).getFirstChild("@type").strValue().equals("LineString")) {
-                                ArrayList<BsonElement> bsonPoint = new ArrayList();
-                                BsonElement typeElement = new BsonElement("type", new BsonString("LineString"));
-                                bsonPoint.add(typeElement);
-                                BsonArray coordinates = new BsonArray();
-                                for (int counter = 0; counter < valueVector.get(counterValueVector).getChildren("coordinates").size(); counter++) {
-                                    BsonArray coord = new BsonArray();
-                                    coord.add(new BsonDouble(valueVector.get(counterValueVector).getChildren("coordinates").get(counter).getFirstChild("lat").doubleValue()));
-                                    coord.add(new BsonDouble(valueVector.get(counterValueVector).getChildren("coordinates").get(counter).getFirstChild("log").doubleValue()));
-                                    coordinates.add(coord);
-                                }
-                                BsonElement coordinateElement = new BsonElement("coordinates", coordinates);
-                                bsonPoint.add(coordinateElement);
-                                BsonDocument bsonObj = new BsonDocument(bsonPoint);
-                                if (valueVector.size() == 1) {
-                                    bsonDocument.append(entry.getKey(), bsonObj);
-                                } else {
-                                    bsonArray.add(counterValueVector, bsonObj);
-                                }
-                            } else if (valueVector.get(counterValueVector).getFirstChild("@type").strValue().equals("LineString")) {
-                                ArrayList<BsonElement> bsonPoint = new ArrayList();
-                                BsonElement typeElement = new BsonElement("type", new BsonString("LineString"));
-                                bsonPoint.add(typeElement);
-                                BsonArray coordinates = new BsonArray();
-                                for (int counter = 0; counter < valueVector.get(counterValueVector).getChildren("coordinates").size(); counter++) {
-                                    BsonArray coord = new BsonArray();
-                                    coord.add(new BsonDouble(valueVector.get(counterValueVector).getChildren("coordinates").get(counter).getFirstChild("lat").doubleValue()));
-                                    coord.add(new BsonDouble(valueVector.get(counterValueVector).getChildren("coordinates").get(counter).getFirstChild("log").doubleValue()));
-                                    coordinates.add(coord);
-                                }
-                                BsonElement coordinateElement = new BsonElement("coordinates", coordinates);
-                                bsonPoint.add(coordinateElement);
-                                BsonDocument bsonObj = new BsonDocument(bsonPoint);
-                                if (valueVector.size() == 1) {
-                                    bsonDocument.append(entry.getKey(), bsonObj);
-                                } else {
-                                    bsonArray.add(counterValueVector, bsonObj);
-                                }
-                            } else if (valueVector.get(counterValueVector).getFirstChild("@type").strValue().equals("Polygon")) {
-                                ArrayList<BsonElement> bsonPoint = new ArrayList();
-                                BsonElement typeElement = new BsonElement("type", new BsonString("Polygon"));
-                                bsonPoint.add(typeElement);
-                                BsonArray coordinates = new BsonArray();
-                                for (int counter = 0; counter < valueVector.get(counterValueVector).getChildren("coordinates").size(); counter++) {
-                                    BsonArray coord = new BsonArray();
-                                    coord.add(new BsonDouble(valueVector.get(counterValueVector).getChildren("coordinates").get(counter).getFirstChild("lat").doubleValue()));
-                                    coord.add(new BsonDouble(valueVector.get(counterValueVector).getChildren("coordinates").get(counter).getFirstChild("log").doubleValue()));
-                                    coordinates.add(coord);
-                                }
-                                BsonElement coordinateElement = new BsonElement("coordinates", coordinates);
-                                bsonPoint.add(coordinateElement);
-                                BsonDocument bsonObj = new BsonDocument(bsonPoint);
-                                if (valueVector.size() == 1) {
-                                    bsonDocument.append(entry.getKey(), bsonObj);
-                                } else {
-                                    bsonArray.add(counterValueVector, bsonObj);
-                                }
-                            } else {
-                                throw new FaultException("ComplexTypeNotSupported");
-                            }
-
-                        } else {
-                            bsonArray.add(counterValueVector, createDocument(valueVector.get(counterValueVector)));
-                        }
-                    }
-
-                    if (valueVector.get(counterValueVector).isInt()) {
-                        addLog("createDocument>>> valueVector.get(counterValueVector).isInt() ");
-                        if (is64) {
-                            BsonInt64 bsonObj = new BsonInt64(valueVector.get(counterValueVector).intValue());
-                            if (valueVector.size() == 1) {
-                                bsonDocument.append(entry.getKey(), bsonObj);
-                            } else {
-                                bsonArray.add(counterValueVector, bsonObj);
-                            }
-
-                        } else {
-                            BsonInt32 bsonObj = new BsonInt32(valueVector.get(counterValueVector).intValue());
-                            if (valueVector.size() == 1) {
-                                bsonDocument.append(entry.getKey(), bsonObj);
-                            } else {
-                                bsonArray.add(counterValueVector, bsonObj);
-                            }
-                        }
-
-                    }
-                    if (valueVector.get(counterValueVector).isDouble()) {
-                        addLog("createDocument>>> valueVector.get(counterValueVector).isDouble() ");
-                        BsonDouble bsonObj = new BsonDouble(valueVector.get(counterValueVector).doubleValue());
-                        if (valueVector.size() == 1) {
-                            bsonDocument.append(entry.getKey(), bsonObj);
-                        } else {
-                            bsonArray.add(counterValueVector, bsonObj);
-                        }
-                    }
-                    if (valueVector.get(counterValueVector).isString()) {
-                        addLog("createDocument>>> valueVector.get(counterValueVector).isString() ");
-                        BsonString bsonObj = new BsonString(valueVector.get(counterValueVector).strValue());
-                        if (valueVector.size() == 1) {
-                            bsonDocument.append(entry.getKey(), bsonObj);
-                        } else {
-                            bsonArray.add(counterValueVector, bsonObj);
-                        }
-                    }
-
-                }
-                if (!bsonArray.isEmpty()) {
-                    bsonDocument.append(entry.getKey(), bsonArray);
-                }
-
-            } else {
-
-            }
-
-        }
-        return bsonDocument;
-    }
-
-    private Value processQueryRow(BsonDocument document) {
-        Value v = Value.create();
-        Set<String> keySet = document.keySet();
-        Iterator<String> iteratorKeySet = keySet.iterator();
-
-        while (iteratorKeySet.hasNext()) {
-            String nameField = iteratorKeySet.next();
-            if (document.isString(nameField)) {
-                v.getChildren(nameField).add(Value.create(document.getString(nameField).getValue()));
-            } else if (document.isInt32(nameField)) {
-                v.getChildren(nameField).add(Value.create(document.getInt32(nameField).getValue()));
-            } else if (document.isInt64(nameField)) {
-                v.getChildren(nameField).add(Value.create(document.getInt64(nameField).getValue()));
-            } else if (document.isDouble(nameField)) {
-                v.getChildren(nameField).add(Value.create(document.getDouble(nameField).getValue()));
-            } else if (document.isDateTime(nameField)) {
-                Date date = new Date(document.getDateTime(nameField).getValue());
-                v.getChildren(nameField).add(Value.create(date.getTime()));
-                v.getFirstChild(nameField).getNewChild("@type").add(Value.create("Date"));
-                v.getFirstChild(nameField).getFirstChild("@type").getNewChild("DateStr").add(Value.create(date.toString()));
-            } else if (document.isDocument(nameField)) {
-                if ((document.getDocument(nameField).containsKey("type"))
-                        && (document.getDocument(nameField).containsKey("coordinates"))) {
-                    if (document.getDocument(nameField).containsValue(new BsonString("Point"))) {
-                        v.getFirstChild(nameField).getFirstChild("@type").add(Value.create("Point"));
-                        BsonArray coordinates = document.getDocument(nameField).getArray("coordinates");
-                        v.getFirstChild(nameField).getFirstChild("coordinates").getFirstChild("lat").add(Value.create(coordinates.get(0).asDouble().getValue()));
-                        v.getFirstChild(nameField).getFirstChild("coordinates").getFirstChild("log").add(Value.create(coordinates.get(1).asDouble().getValue()));
-                    }
-                    if (document.getDocument(nameField).containsValue(new BsonString("LineString"))) {
-
-                        v.getFirstChild(nameField).getFirstChild("@type").add(Value.create("LineString"));
-                        BsonArray coordinates = document.getDocument(nameField).getArray("coordinates");
-                        for (int counter = 0; counter < coordinates.size(); counter++) {
-                            BsonArray cood = coordinates.get(counter).asArray();
-                            v.getFirstChild(nameField).getChildren("coordinates").get(counter).getFirstChild("lat").add(Value.create(cood.get(0).asDouble().getValue()));
-                            v.getFirstChild(nameField).getChildren("coordinates").get(counter).getFirstChild("log").add(Value.create(cood.get(1).asDouble().getValue()));
-                        }
-                    }
-                    if (document.getDocument(nameField).containsValue(new BsonString("Polygon"))) {
-
-                        v.getFirstChild(nameField).getFirstChild("@type").add(Value.create("Polygon"));
-                        BsonArray coordinates = document.getDocument(nameField).getArray("coordinates");
-                        for (int counter = 0; counter < coordinates.size(); counter++) {
-                            BsonArray cood = coordinates.get(counter).asArray();
-                            v.getFirstChild(nameField).getChildren("coordinates").get(counter).getFirstChild("lat").add(Value.create(cood.get(0).asDouble().getValue()));
-                            v.getFirstChild(nameField).getChildren("coordinates").get(counter).getFirstChild("log").add(Value.create(cood.get(1).asDouble().getValue()));
-                        }
-                    }
-                } else {
-                    v.getChildren(nameField).add(processQueryRow(document.getDocument(nameField)));
-                }
-            } else if (document.isArray(nameField)) {
-
-                List<BsonValue> array = document.getArray(nameField).getValues();
-                Iterator<BsonValue> iteratorArray = array.iterator();
-
-                while (iteratorArray.hasNext()) {
-                    Object obj = iteratorArray.next();
-
-                    if (obj instanceof BsonString) {
-                        BsonString bsonObj = (BsonString) obj;
-                        v.getChildren(nameField).add(Value.create(bsonObj.getValue()));
-                    } else if (obj instanceof BsonInt32) {
-                        BsonInt32 bsonObj = (BsonInt32) obj;
-                        v.getChildren(nameField).add(Value.create(bsonObj.getValue()));
-                    } else if (obj instanceof BsonInt64) {
-                        BsonInt64 bsonObj = (BsonInt64) obj;
-                        v.getChildren(nameField).add(Value.create(bsonObj.getValue()));
-                    } else if (obj instanceof BsonDouble) {
-                        BsonDouble bsonObj = (BsonDouble) obj;
-                        v.getChildren(nameField).add(Value.create(bsonObj.getValue()));
-                    } else if (obj instanceof BsonDateTime) {
-                        BsonDateTime date = BsonDateTime.class.cast(obj);
-                        Value objValue = Value.create(date.getValue());
-                        objValue.getNewChild("@type").add(Value.create("Date"));
-                        objValue.getFirstChild("@type").getNewChild("DateStr").add(Value.create(date.toString()));
-                        v.getChildren(nameField).add(objValue);
-                    } else if (obj instanceof BsonDocument) {
-                        BsonDocument bsonObj = (BsonDocument) obj;
-                        v.getChildren(nameField).add(processQueryRow(bsonObj));
-                    }
-                }
-
-            } else if (document.get(nameField).isObjectId()) {
-                BsonObjectId objId;
-                objId = document.getObjectId(nameField);
-                v.add(Value.create(objId.getValue().toHexString()));
-
-            }
-
-        }
-
-        return v;
-
-    }
-
-    private void printlnJson(String level, BsonDocument bsonDocument) {
-        if (jsonDebuger) {
-            System.out.println(level + " " + bsonDocument.toJson());
-        }
-    }
-
-    private void addLog(String msg) {
-        if (logStream) {
-            logString += "\r\n" + msg;
-        }
-    }
-
-    private void showLog() {
-
-        logString = "Processing Steps at " + System.currentTimeMillis();
-
-    }
+  
 }
